@@ -48,28 +48,13 @@ const ProductInfoTab = ({ product }: ProductTabsProps) => {
             <span className="font-semibold text-[var(--color-accent)]">Material</span>
             <p>{product.material || "-"}</p>
           </div>
-          <div>
-            <span className="font-semibold text-[var(--color-accent)]">País de origen</span>
-            <p>{product.origin_country || "-"}</p>
-          </div>
-          <div>
-            <span className="font-semibold text-[var(--color-accent)]">Tipo</span>
-            <p>{product.type?.value || "-"}</p>
-          </div>
         </div>
         <div className="flex flex-col gap-y-4">
           <div>
-            <span className="font-semibold text-[var(--color-accent)]">Peso</span>
+            <span className="font-semibold text-[var(--color-accent)]">Mililitros</span>
             <p>{product.weight ? `${product.weight} g` : "-"}</p>
           </div>
-          <div>
-            <span className="font-semibold text-[var(--color-accent)]">Dimensiones</span>
-            <p>
-              {product.length && product.width && product.height
-                ? `${product.length}L x ${product.width}A x ${product.height}H`
-                : "-"}
-            </p>
-          </div>
+          
         </div>
       </div>
     </div>

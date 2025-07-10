@@ -16,8 +16,8 @@ const validSortOptions: SortOptions[] = [
   "created_at",
   "price_asc",
   "price_desc",
-  "collection_destacados",
-  "collection_nuevos lanzamientos",
+  "collection_hombre",
+  "collection_mujer",
 ]
 
 const RefinementList = ({ sortBy, "data-testid": dataTestId }: RefinementListProps) => {
