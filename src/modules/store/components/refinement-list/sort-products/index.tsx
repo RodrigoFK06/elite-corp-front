@@ -6,8 +6,8 @@ export type SortOptions =
   | "price_asc"
   | "price_desc"
   | "created_at"
-  | "collection_destacados"
-  | "collection_nuevos lanzamientos" // ¡Importante! Usamos el `handle` sin slash
+  | "collection_hombre"
+  | "collection_mujer" // ¡Importante! Usamos el `handle` sin slash
 
 type SortProductsProps = {
   sortBy: SortOptions
@@ -29,12 +29,12 @@ const sortOptions = [
     label: "Precio de mayor a menor",
   },
   {
-    value: "collection_destacados",
-    label: "Productos Destacados",
+    value: "collection_hombre",
+    label: "Productos Hombres",
   },
   {
-    value: "collection_nuevos lanzamientos",
-    label: "Nuevos Lanzamientos",
+    value: "collection_mujer",
+    label: "Productos Mujer",
   },
 ]
 
