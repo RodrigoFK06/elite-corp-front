@@ -1,28 +1,60 @@
 "use client"
-
+import { authorizeCulqiPayment } from "@lib/data/cart"
 import { RadioGroup } from "@headlessui/react"
 import { isStripe as isStripeFunc, paymentInfoMap } from "@lib/constants"
-import { initiatePaymentSession,retrieveCart } from "@lib/data/cart"
+import { initiatePaymentSession, placeOrder } from "@lib/data/cart"
 import { CheckCircleSolid, CreditCard } from "@medusajs/icons"
-import { Button, Container, Heading, Text, clx } from "@medusajs/ui"
+import { Button, Heading, Text, clx } from "@medusajs/ui"
 import ErrorMessage from "@modules/checkout/components/error-message"
 import PaymentContainer, {
   StripeCardContainer,
 } from "@modules/checkout/components/payment-container"
+import CulqiForm from "@modules/checkout/components/culqiform/CulqiForm"
 import Divider from "@modules/common/components/divider"
 import { usePathname, useRouter, useSearchParams } from "next/navigation"
 import { useCallback, useEffect, useState } from "react"
 
-const Payment = ({
-  cart,
-  availablePaymentMethods,
-}: {
+type PaymentMethod = {
+  id: string
+  name: string
+}
+
+interface Props {
   cart: any
-  availablePaymentMethods: any[]
-}) => {
+  availablePaymentMethods: PaymentMethod[]
+}
+
+const Payment = ({ cart, availablePaymentMethods }: Props) => {
   const activeSession = cart.payment_collection?.payment_sessions?.find(
-    (paymentSession: any) => paymentSession.status === "pending"
+    (s: any) => s.status === "pending"
   )
+
+  const selectedPaymentMethodInitial = activeSession?.provider_id ?? ""
+  const searchParams = useSearchParams()
+  const router = useRouter()
+  const pathname = usePathname()
+  const isOpen = searchParams.get("step") === "payment"
+
+  // 🔁 Recarga forzada si Culqi está activo la primera vez
+  useEffect(() => {
+    if (
+      selectedPaymentMethodInitial === "pp_culqi_culqi" &&
+      isOpen &&
+      typeof window !== "undefined" &&
+      !sessionStorage.getItem("culqi_hard_reload")
+    ) {
+      console.warn("🔁 Recargando página por Culqi...")
+      sessionStorage.setItem("culqi_hard_reload", "true")
+      window.location.href = window.location.href
+    }
+  }, [selectedPaymentMethodInitial, isOpen])
+
+  // 🧹 Limpieza al desmontar
+  useEffect(() => {
+    return () => {
+      sessionStorage.removeItem("culqi_hard_reload")
+    }
+  }, [])
 
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -32,42 +64,11 @@ const Payment = ({
     activeSession?.provider_id ?? ""
   )
 
-  const searchParams = useSearchParams()
-  const router = useRouter()
-  const pathname = usePathname()
-  const safeSearchParams = searchParams ?? new URLSearchParams()
-
-   const isOpen = safeSearchParams.get("step") === "payment"
-
   const isStripe = isStripeFunc(selectedPaymentMethod)
 
-  const setPaymentMethod = async (method: string) => {
-    setError(null)
-    setSelectedPaymentMethod(method)
-
-    const provider_id = method.startsWith("pp_system_default")
-      ? "pp_system_default"
-      : method
-
-    if (isStripeFunc(method)) {
-      await initiatePaymentSession(cart, {
-        provider_id,
-      })
-    } else {
-      await initiatePaymentSession(cart, { provider_id })
-    }
-  }
-
-  const paidByGiftcard =
-    cart?.gift_cards && cart?.gift_cards?.length > 0 && cart?.total === 0
-
-  const paymentReady =
-    (activeSession && cart?.shipping_methods.length !== 0) || paidByGiftcard
-
- const createQueryString = useCallback(
-  (name: string, value: string) => {
-    const params = new URLSearchParams(safeSearchParams)
-
+  const createQueryString = useCallback(
+    (name: string, value: string) => {
+      const params = new URLSearchParams(searchParams)
       params.set(name, value)
       return params.toString()
     },
@@ -80,234 +81,230 @@ const Payment = ({
     })
   }
 
-  const handleSubmit = async () => {
-  setIsLoading(true)
-  try {
-    const shouldInputCard =
-      isStripeFunc(selectedPaymentMethod) && !activeSession
+  const setPaymentMethod = async (method: string) => {
+    setError(null)
+    setSelectedPaymentMethod(method)
+    console.log("🧭 Método de pago seleccionado:", method)
 
-    const checkActiveSession =
-      activeSession?.provider_id === selectedPaymentMethod
-
-    if (!checkActiveSession) {
-      const provider_id = selectedPaymentMethod.startsWith("pp_system_default")
-        ? "pp_system_default"
-        : selectedPaymentMethod
-
-      await initiatePaymentSession(cart, { provider_id })
+    if (isStripeFunc(method) || method === "pp_culqi_culqi") {
+      await initiatePaymentSession(cart, { provider_id: method })
     }
+  }
 
-    // 🔄 Refrescar carrito para asegurar que tenga sesión válida antes de redirigir
-    const refreshedCart = await retrieveCart(cart.id)
-    const refreshedSession = refreshedCart?.payment_collection?.payment_sessions?.find(
-      (session) => session.status === "pending"
-    )
+  const paidByGiftcard =
+    cart?.gift_cards?.length > 0 && cart?.total === 0
 
-    if (!refreshedSession) {
-      setError("Error: No se pudo establecer una sesión de pago válida.")
-      return
-    }
+  const paymentReady =
+    (activeSession && cart?.shipping_methods.length !== 0) || paidByGiftcard
 
-    if (!shouldInputCard) {
-      return router.push(
-        pathname + "?" + createQueryString("step", "review"),
-        {
+  const handleCulqiToken = async (tokenId: string) => {
+    try {
+      setIsLoading(true)
+
+      const email = cart.customer?.email ?? "cliente@test.com"
+      console.log("🪙 [Culqi] Token recibido:", tokenId)
+      console.log("📧 [Culqi] Email del cliente:", email)
+
+      const charge = await authorizeCulqiPayment({
+        cartId: cart.id,
+        email,
+        source_id: tokenId,
+      })
+
+      console.log("💵 [Culqi] Cargo creado:", charge)
+
+      await initiatePaymentSession(cart, {
+        provider_id: "pp_culqi_culqi",
+        data: {
+          source_id: tokenId,
+          email,
+          charge_id: charge.id,
+        },
+      })
+
+      router.refresh()
+
+      setTimeout(() => {
+        router.push(pathname + "?" + createQueryString("step", "review"), {
           scroll: false,
-        }
-      )
+        })
+      }, 200)
+
+    } catch (err: any) {
+      console.error("❌ [Culqi] Error en flujo de pago:", err)
+      setError(err.message ?? "No se pudo completar el pago con Culqi")
+    } finally {
+      setIsLoading(false)
     }
-  } catch (err: any) {
-    setError(err.message || "Error al procesar el pago.")
-  } finally {
-    setIsLoading(false)
   }
-}
-useEffect(() => {
-  if (selectedPaymentMethod?.startsWith("pp_system_default")) {
-    const timerElement = document.getElementById("timer")
-    let secondsLeft = 15 * 60
-    const interval = setInterval(() => {
-      const mins = String(Math.floor(secondsLeft / 60)).padStart(2, "0")
-      const secs = String(secondsLeft % 60).padStart(2, "0")
-      if (timerElement) timerElement.innerText = `${mins}:${secs}`
-      secondsLeft -= 1
-      if (secondsLeft < 0) clearInterval(interval)
-    }, 1000)
-    return () => clearInterval(interval)
+
+  const handleSubmit = async () => {
+    setIsLoading(true)
+    try {
+      console.log("🧾 Enviando formulario de pago con método:", selectedPaymentMethod)
+
+      const shouldInputCard =
+        isStripeFunc(selectedPaymentMethod) && !activeSession
+
+      const checkActiveSession =
+        activeSession?.provider_id === selectedPaymentMethod
+
+      if (!checkActiveSession) {
+        console.log("🔄 Reiniciando sesión de pago...")
+        await initiatePaymentSession(cart, {
+          provider_id: selectedPaymentMethod,
+        })
+      }
+
+      if (!shouldInputCard) {
+        router.push(pathname + "?" + createQueryString("step", "review"), {
+          scroll: false,
+        })
+      }
+    } catch (err: any) {
+      console.error("❌ Error al enviar el formulario de pago:", err)
+      setError(err.message)
+    } finally {
+      setIsLoading(false)
+    }
   }
-}, [selectedPaymentMethod])
 
   useEffect(() => {
     setError(null)
   }, [isOpen])
 
-  return (
-<div className="bg-[#1a1a1a] text-white p-6 rounded-md shadow-md w-full border border-[#D8A400]">
-   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 mb-6">
-  <Heading
-    level="h2"
-    className={clx(
-      "flex flex-row text-3xl font-bold text-[#FFD700] gap-x-2 items-baseline",
-      {
-        "opacity-50 pointer-events-none select-none":
-          !isOpen && !paymentReady,
-      }
-    )}
-  >
-    Metodo de Pago
-    {!isOpen && paymentReady && <CheckCircleSolid />}
-  </Heading>
+  const filteredPaymentMethods = availablePaymentMethods.filter(
+    (m) => ["manual", "pp_culqi_culqi"].includes(m.id) || isStripeFunc(m.id)
+  )
 
-  {!isOpen && paymentReady && (
-    <Text>
-      <button
-        onClick={handleEdit}
-        className="text-[#8B3A15] hover:underline font-medium"
-        data-testid="edit-payment-button"
-      >
-        Editar
-      </button>
-    </Text>
-  )}
-</div>
+  return (
+    <div className="bg-[#121212] border border-[#FFD700] p-6 rounded-md">
+      <div className="flex flex-row items-center justify-between mb-6">
+        <Heading
+          level="h2"
+          className={clx(
+            "flex flex-row text-3xl-regular gap-x-2 items-baseline text-[#FFD700]",
+            { "opacity-50 pointer-events-none select-none": !isOpen && !paymentReady }
+          )}
+        >
+          Método de Pago
+          {!isOpen && paymentReady && <CheckCircleSolid className="text-green-500" />}
+        </Heading>
+
+        {!isOpen && paymentReady && (
+          <Text>
+            <button
+              onClick={handleEdit}
+              className="text-[#FFD700] hover:text-yellow-300"
+            >
+              Editar
+            </button>
+          </Text>
+        )}
+      </div>
 
       <div>
         <div className={isOpen ? "block" : "hidden"}>
-          {!paidByGiftcard && (
-            <>
-           <RadioGroup
-  value={selectedPaymentMethod}
-  onChange={(value: string) => setPaymentMethod(value)}
->
-  {["pp_system_default_yape", "pp_system_default_transfer"].map((paymentMethod) => (
-    <div key={paymentMethod}>
-      <div
-        onClick={() => setPaymentMethod(paymentMethod)}
-        className={clx(
-          "border rounded-md p-4 mb-4 cursor-pointer transition-all duration-300",
-          {
-            "bg-[#FFF9EF] border-[#8B3A15] shadow-lg":
-              selectedPaymentMethod === paymentMethod,
-            "bg-white border-gray-300": selectedPaymentMethod !== paymentMethod,
-          }
-        )}
-      >
-        <div className="flex justify-between items-center">
-          <div className="text-lg font-medium text-[#1a1a1a]">
-            {paymentMethod === "pp_system_default_yape" && "Yape / Plin"}
-            {paymentMethod === "pp_system_default_transfer" && "Transferencia Bancaria"}
-          </div>
-          {selectedPaymentMethod === paymentMethod && (
-            <CheckCircleSolid className="text-green-600" />
-          )}
-        </div>
-
-        {selectedPaymentMethod === paymentMethod && (
-          <div className="mt-4 text-sm text-[#1a1a1a]">
-           {paymentMethod === "pp_system_default_yape" && (
-  <div className="mt-4 text-sm text-[#1a1a1a]">
-    <p>Realiza el pago al número <strong>960-481-012</strong> y envía la captura por WhatsApp.</p>
-    <p className="mt-1">Luego de eso, ya puedes presionar el botón <strong>“Continuar a revisión”</strong>.</p>
-  </div>
+          {!paidByGiftcard && filteredPaymentMethods.length > 0 && (
+            <RadioGroup
+              value={selectedPaymentMethod}
+              onChange={(val: string) => setPaymentMethod(val)}
+            >
+              {filteredPaymentMethods.map((method) => (
+                <div key={method.id} className="py-4">
+                  {isStripeFunc(method.id) ? (
+                    <StripeCardContainer
+                      paymentProviderId={method.id}
+                      selectedPaymentOptionId={selectedPaymentMethod}
+                      paymentInfoMap={paymentInfoMap}
+                      setCardBrand={setCardBrand}
+                      setError={setError}
+                      setCardComplete={setCardComplete}
+                    />
+                  ) : method.id === "pp_culqi_culqi" ? (
+                    <CulqiForm
+                      amount={cart.total * 100}
+                      email={cart.customer?.email ?? "cliente@test.com"}
+                      onToken={handleCulqiToken}
+                    />
+                  ) : (
+                    <PaymentContainer
+                      paymentInfoMap={paymentInfoMap}
+                      paymentProviderId={method.id}
+                      selectedPaymentOptionId={selectedPaymentMethod}
+                    />
+                  )}
+                </div>
+              ))}
+            </RadioGroup>
           )}
 
-          {paymentMethod === "pp_system_default_transfer" && (
-  <div className="mt-4 text-sm text-[#1a1a1a]">
-    <p>Transfiere al número de cuenta <strong>123-456-789</strong> y envía la captura al mismo número por WhatsApp.</p>
-    <p className="mt-1">Luego de eso, ya puedes presionar el botón <strong>“Continuar a revisión”</strong>.</p>
-  </div>
+          {paidByGiftcard && (
+            <div className="flex flex-col w-1/3">
+              <Text className="txt-medium-plus text-white mb-1">
+                Método de Pago
+              </Text>
+              <Text className="txt-medium text-[#CCCCCC]">Tarjeta de regalo</Text>
+            </div>
           )}
 
-          </div>
-        )}
-      </div>
-    </div>
-  ))}
-</RadioGroup>
+          <ErrorMessage error={error} />
 
-            </>
-          )}
-
-  
-<div className="flex flex-col sm:flex-row sm:items-center sm:justify-between mt-6 gap-4">
-  <Button
-    size="large"
-    onClick={handleSubmit}
-    isLoading={isLoading}
-    disabled={
-      (isStripe && !cardComplete) ||
-      (!selectedPaymentMethod && !paidByGiftcard)
-    }
-    className="px-6 py-2 bg-[#191817] text-white hover:bg-[#6a2a0f] transition rounded"
-  >
-    {!activeSession && isStripeFunc(selectedPaymentMethod)
-      ? "Ingresar detalles de tarjeta"
-      : "Continuar a revisión"}
-  </Button>
-
-  {/* Temporizador siempre visible con Yape o Transferencia */}
-  {(selectedPaymentMethod === "pp_system_default_yape" ||
-    selectedPaymentMethod === "pp_system_default_transfer") && (
-    <div className="mt-4 sm:mt-0 sm:ml-4 w-full sm:w-auto">
-  <div className="text-sm font-medium text-[#FFD700] bg-[#1a1a1a] border-[#FFD700]border border-[#8B3A15] px-4 py-2 rounded shadow-sm w-full text-center sm:text-left">
-    ⏳ Tiempo restante para confirmar tu pago:
-    <span id="timer" className="ml-1 font-semibold text-[#8B3A15]">15:00</span>
-  </div>
-</div>
-
-  )}
-</div>
-       <ErrorMessage
-            error={error}
-            data-testid="payment-method-error-message"
-          />
-          
+          <Button
+            size="large"
+            className="mt-6 bg-[#FFD700] text-black hover:bg-[#8B3A15]"
+            onClick={handleSubmit}
+            isLoading={isLoading}
+            disabled={
+              (isStripe && !cardComplete) ||
+              (!selectedPaymentMethod && !paidByGiftcard)
+            }
+          >
+            {!activeSession && isStripe ? "Ingresar datos de tarjeta" : "Continuar con la revisión"}
+          </Button>
         </div>
 
         <div className={isOpen ? "hidden" : "block"}>
-       {cart && paymentReady && activeSession ? (
-  <div className="flex items-start gap-x-1 w-full">
-    <div className="flex flex-col w-1/3">
-      <Text className="txt-medium-plus text-ui-fg-base mb-1">
-        Método de Pago
-      </Text>
-      <Text className="txt-medium text-ui-fg-subtle">
-        {activeSession.provider_id === "pp_system_default_yape"
-          ? "Yape / Plin"
-          : activeSession.provider_id === "pp_system_default_transfer"
-          ? "Transferencia Bancaria"
-          : paymentInfoMap[activeSession?.provider_id]?.title ||
-            activeSession?.provider_id}
-      </Text>
-    </div>
-    <div className="flex flex-col w-1/3">
-      <Text className="txt-medium-plus text-ui-fg-base mb-1">
-        Detalles de Pago
-      </Text>
-      <div className="flex gap-2 txt-medium text-ui-fg-subtle items-center">
-        <span className="text-sm">
-          {activeSession.provider_id === "pp_system_default_yape"
-            ? "Enviar captura al WhatsApp 960-481-012"
-            : activeSession.provider_id === "pp_system_default_transfer"
-            ? "Transferir a la cuenta 123-456-789 y enviar captura"
-            : "Another step will appear"}
-        </span>
-      </div>
-    </div>
-  </div>
-) : paidByGiftcard ? (
-  <div className="flex flex-col w-1/3">
-    <Text className="txt-medium-plus text-ui-fg-base mb-1">
-      Método de Pago
-    </Text>
-    <Text className="txt-medium text-ui-fg-subtle">
-      Gift card
-    </Text>
-  </div>
-) : null}
+          {cart && paymentReady && activeSession ? (
+            <div className="flex items-start gap-x-1 w-full">
+              <div className="flex flex-col w-1/3">
+                <Text className="txt-medium-plus text-white mb-1">
+                  Método de Pago
+                </Text>
+                <Text className="txt-medium text-[#CCCCCC]">
+                  {paymentInfoMap[activeSession.provider_id]?.title ?? activeSession.provider_id}
+                </Text>
+              </div>
+              <div className="flex flex-col w-1/3">
+                <Text className="txt-medium-plus text-white mb-1">
+                  Detalles del Pago
+                </Text>
+                <div className="flex gap-2 txt-medium text-[#CCCCCC] items-center">
+                  <div className="flex items-center h-7 w-fit p-2 bg-[#333] rounded">
+                    {paymentInfoMap[selectedPaymentMethod]?.icon ?? <CreditCard />}
+                  </div>
+                  <Text>
+                    {isStripe && cardBrand
+                      ? cardBrand
+                      : selectedPaymentMethod === "pp_culqi_culqi"
+                      ? "Token Culqi enviado"
+                      : ""}
+                  </Text>
+                </div>
+              </div>
+            </div>
+          ) : paidByGiftcard ? (
+            <div className="flex flex-col w-1/3">
+              <Text className="txt-medium-plus text-white mb-1">
+                Método de Pago
+              </Text>
+              <Text className="txt-medium text-[#CCCCCC]">Tarjeta de regalo</Text>
+            </div>
+          ) : null}
         </div>
       </div>
-      <Divider className="mt-8" />
+
+      <Divider className="mt-8 border-t border-[#FFD700]" />
     </div>
   )
 }

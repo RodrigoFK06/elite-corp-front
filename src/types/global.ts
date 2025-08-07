@@ -6,7 +6,11 @@ export type FeaturedProduct = {
   handle: string
   thumbnail?: string
 }
-
+declare global {
+  interface Window {
+    Culqi: any
+  }
+}
 export type VariantPrice = {
   calculated_price_number: number
   calculated_price: string

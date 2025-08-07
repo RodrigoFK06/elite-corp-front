@@ -1,5 +1,4 @@
 "use server"
-
 import { sdk } from "@lib/config"
 import medusaError from "@lib/util/medusa-error"
 import { HttpTypes } from "@medusajs/types"
@@ -14,7 +13,7 @@ import {
   setCartId,
 } from "./cookies"
 import { getRegion } from "./regions"
-
+import { createCulqiCharge } from "@lib/util/culqi"
 /**
  * Retrieves a cart by its ID. If no ID is provided, it will use the cart ID from the cookies.
  * @param cartId - optional - The ID of the cart to retrieve.
@@ -468,3 +467,42 @@ export async function listCartOptions() {
     cache: "force-cache",
   })
 }
+export async function authorizeCulqiPayment({
+  cartId,
+  email,
+  source_id,
+}: {
+  cartId: string
+  email: string
+  source_id: string
+}) {
+  try {
+    const cart = await sdk.store.cart.retrieve(cartId)
+
+    if (!cart || !cart.cart || !cart.cart.region) {
+      throw new Error("Cart o región no encontrada")
+    }
+    console.log("🛒 Carrito recuperado:", cart)
+    console.log("🌍 Región:", cart.cart.region)
+    console.log("💱 Currency code:", cart.cart.region?.currency_code)
+    console.log("💰 Monto total:", cart.cart.total)
+    console.log("💳 Token de Culqi (source_id):", source_id)
+    console.log("📧 Correo:", email)
+    const currency = (cart.cart.region?.currency_code.toUpperCase() ?? "PEN") as "PEN" | "USD"
+    const amount = String(Math.round(cart.cart.total * 100))
+    const charge = await createCulqiCharge({
+  amount,
+  currency_code: currency,
+  email,
+  source_id,
+})
+
+
+    return charge
+  } catch (err: any) {
+    console.error("💥 Error en authorizeCulqiPayment:", err)
+    throw err // para que lo capture handleCulqiToken
+  }
+}
+
+

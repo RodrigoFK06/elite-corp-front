@@ -1,17 +1,12 @@
 "use client"
 
 import { isManual, isStripe } from "@lib/constants"
-import {
-  initiatePaymentSession,
-  placeOrder,
-  retrieveCart,
-} from "@lib/data/cart"
+import { placeOrder } from "@lib/data/cart"
 import { HttpTypes } from "@medusajs/types"
 import { Button } from "@medusajs/ui"
 import { useElements, useStripe } from "@stripe/react-stripe-js"
 import React, { useState } from "react"
 import ErrorMessage from "../error-message"
-import { useRouter } from "next/navigation"
 
 type PaymentButtonProps = {
   cart: HttpTypes.StoreCart
@@ -42,11 +37,11 @@ const PaymentButton: React.FC<PaymentButtonProps> = ({
       )
     case isManual(paymentSession?.provider_id):
       return (
-        <ManualTestPaymentButton
-          cart={cart}
-          notReady={notReady}
-          data-testid={dataTestId}
-        />
+        <ManualTestPaymentButton notReady={notReady} data-testid={dataTestId} />
+      )
+    case paymentSession?.provider_id === "pp_culqi_culqi":
+      return (
+        <CulqiPaymentButton notReady={notReady} data-testid={dataTestId} />
       )
     default:
       return <Button disabled>Select a payment method</Button>
@@ -64,6 +59,51 @@ const StripePaymentButton = ({
 }) => {
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+const onPaymentCompleted = async () => {
+  console.log("🟡 Ejecutando placeOrder() para Culqi...")
+
+  const cartId = cart?.id
+
+  const activeSession = cart?.payment_collection?.payment_sessions?.find(
+    (s) => s.provider_id === "pp_culqi_culqi"
+  )
+
+  console.log("📦 Revisando payment_session activo antes de completar:")
+  console.log("🧾 Sesión activa encontrada:", activeSession)
+
+  if (!activeSession) {
+    console.error("❌ No se encontró una sesión Culqi activa en el cart.")
+    return
+  }
+
+  if (activeSession.status !== "pending") {
+    console.warn("⚠️ Sesión Culqi encontrada pero no está en estado 'pending'")
+  }
+
+  try {
+    // ⚠️ Fuerza a usar esta sesión como activa
+    await fetch(`/api/set-payment-session`, {
+      method: "POST",
+      body: JSON.stringify({
+        provider_id: "pp_culqi_culqi",
+        cart_id: cartId,
+      }),
+      headers: {
+        "Content-Type": "application/json",
+      },
+    })
+
+    const res = await placeOrder()
+    console.log("🟢 Pedido completado correctamente (Culqi)", res)
+  } catch (err) {
+    console.error("🔴 Error al completar pedido (Culqi):", err)
+    setErrorMessage((err as any).message)
+  } finally {
+    console.log("ℹ️ Finalizando estado de envío (Culqi)")
+    setSubmitting(false)
+  }
+}
 
   const stripe = useStripe()
   const elements = useElements()
@@ -83,49 +123,50 @@ const StripePaymentButton = ({
       return
     }
 
-    try {
-      const result = await stripe.confirmCardPayment(
-        session?.data.client_secret as string,
-        {
-          payment_method: {
-            card,
-            billing_details: {
-              name:
-                cart.billing_address?.first_name +
-                " " +
-                cart.billing_address?.last_name,
-              address: {
-                city: cart.billing_address?.city ?? undefined,
-                country: cart.billing_address?.country_code ?? undefined,
-                line1: cart.billing_address?.address_1 ?? undefined,
-                line2: cart.billing_address?.address_2 ?? undefined,
-                postal_code: cart.billing_address?.postal_code ?? undefined,
-                state: cart.billing_address?.province ?? undefined,
-              },
-              email: cart.email,
-              phone: cart.billing_address?.phone ?? undefined,
+    await stripe
+      .confirmCardPayment(session?.data.client_secret as string, {
+        payment_method: {
+          card: card,
+          billing_details: {
+            name:
+              cart.billing_address?.first_name +
+              " " +
+              cart.billing_address?.last_name,
+            address: {
+              city: cart.billing_address?.city ?? undefined,
+              country: cart.billing_address?.country_code ?? undefined,
+              line1: cart.billing_address?.address_1 ?? undefined,
+              line2: cart.billing_address?.address_2 ?? undefined,
+              postal_code: cart.billing_address?.postal_code ?? undefined,
+              state: cart.billing_address?.province ?? undefined,
             },
+            email: cart.email,
+            phone: cart.billing_address?.phone ?? undefined,
           },
+        },
+      })
+      .then(({ error, paymentIntent }) => {
+        if (error) {
+          const pi = error.payment_intent
+
+          if (
+            (pi && pi.status === "requires_capture") ||
+            (pi && pi.status === "succeeded")
+          ) {
+            onPaymentCompleted()
+          }
+
+          setErrorMessage(error.message || null)
+          return
         }
-      )
 
-      const pi = result.paymentIntent || result.error?.payment_intent
-
-      if (
-        pi?.status === "requires_capture" ||
-        pi?.status === "succeeded"
-      ) {
-        await placeOrder()
-      }
-
-      if (result.error) {
-        setErrorMessage(result.error.message || null)
-      }
-    } catch (err: any) {
-      setErrorMessage(err.message || "Error al procesar el pago.")
-    } finally {
-      setSubmitting(false)
-    }
+        if (
+          (paymentIntent && paymentIntent.status === "requires_capture") ||
+          paymentIntent.status === "succeeded"
+        ) {
+          return onPaymentCompleted()
+        }
+      })
   }
 
   return (
@@ -147,56 +188,74 @@ const StripePaymentButton = ({
   )
 }
 
-const ManualTestPaymentButton = ({
-  cart,
+const ManualTestPaymentButton = ({ notReady }: { notReady: boolean }) => {
+  const [submitting, setSubmitting] = useState(false)
+  const [errorMessage, setErrorMessage] = useState<string | null>(null)
+
+  const onPaymentCompleted = async () => {
+    await placeOrder()
+      .catch((err) => {
+        setErrorMessage(err.message)
+      })
+      .finally(() => {
+        setSubmitting(false)
+      })
+  }
+
+  const handlePayment = () => {
+    setSubmitting(true)
+    onPaymentCompleted()
+  }
+
+  return (
+    <>
+      <Button
+        disabled={notReady}
+        isLoading={submitting}
+        onClick={handlePayment}
+        size="large"
+        data-testid="submit-order-button"
+      >
+        Place order
+      </Button>
+      <ErrorMessage
+        error={errorMessage}
+        data-testid="manual-payment-error-message"
+      />
+    </>
+  )
+}
+
+const CulqiPaymentButton = ({
   notReady,
   "data-testid": dataTestId,
 }: {
-  cart: HttpTypes.StoreCart
   notReady: boolean
   "data-testid"?: string
 }) => {
   const [submitting, setSubmitting] = useState(false)
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
-  const router = useRouter()
 
-  const handlePayment = async () => {
+  const onPaymentCompleted = async () => {
+    console.log("🟡 Ejecutando placeOrder() para Culqi...")
+    await placeOrder()
+      .then(() => {
+        console.log("🟢 Pedido completado AAA correctamente (Culqi)")
+      })
+      .catch((err) => {
+        console.error("🔴 Error al completar pedido (Culqi):", err)
+        setErrorMessage(err.message)
+      })
+      .finally(() => {
+        console.log("ℹ️ Finalizando estado de envío (Culqi)")
+        setSubmitting(false)
+      })
+  }
+
+  const handlePayment = () => {
+    console.log("🟠 Click en botón 'Place Order' (Culqi)")
     setSubmitting(true)
-    try {
-      const provider_id =
-        cart?.payment_collection?.payment_sessions?.[0]?.provider_id
-
-      if (!provider_id) {
-        throw new Error("No se ha seleccionado un método de pago.")
-      }
-
-      // 🔁 Siempre crear una nueva sesión válida
-      await initiatePaymentSession(cart, { provider_id })
-
-      // ⏳ Espera corta opcional en local
-      await new Promise((r) => setTimeout(r, 250))
-
-      const updatedCart = await retrieveCart()
-      if (!updatedCart) {
-        throw new Error("No se pudo recuperar el carrito actualizado.")
-      }
-
-      const session = updatedCart.payment_collection?.payment_sessions?.find(
-        (s) => s.status === "pending" && s.provider_id === provider_id
-      )
-
-      if (!session) {
-        throw new Error("La sesión de pago aún no está disponible.")
-      }
-
-      await placeOrder(updatedCart.id)
-      router.push("/app/order")
-    } catch (err: any) {
-      console.error(err)
-      setErrorMessage(err.message || "Error al confirmar el pedido.")
-    } finally {
-      setSubmitting(false)
-    }
+    onPaymentCompleted()
   }
 
   return (
@@ -208,14 +267,15 @@ const ManualTestPaymentButton = ({
         size="large"
         data-testid={dataTestId}
       >
-        Confirmar pedido
+        Place order
       </Button>
       <ErrorMessage
         error={errorMessage}
-        data-testid="manual-payment-error-message"
+        data-testid="culqi-payment-error-message"
       />
     </>
   )
 }
+
 
 export default PaymentButton

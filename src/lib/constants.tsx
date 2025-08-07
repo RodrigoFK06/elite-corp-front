@@ -1,5 +1,5 @@
 import React from "react"
-import { CreditCard } from "@medusajs/icons"
+import { CreditCard } from "@medusajs/icons" //Ya se agrego culqi aca
 
 import Ideal from "@modules/common/icons/ideal"
 import Bancontact from "@modules/common/icons/bancontact"
@@ -30,14 +30,10 @@ export const paymentInfoMap: Record<
     title: "Manual Payment",
     icon: <CreditCard />,
   },
-  "pp_system_default_yape": {
-    title: "Yape / Plin",
-    icon: <CreditCard />, // o ícono personalizado
-  },
-  "pp_system_default_transfer": {
-    title: "Transferencia Bancaria",
-    icon: <CreditCard />, // o ícono personalizado
-  },
+  pp_culqi_culqi: {
+  title: "Culqi",
+  icon: <CreditCard /> // o <CreditCard /> si no tienes ícono propio
+},
   // Add more payment providers here
 }
 
@@ -51,7 +47,6 @@ export const isPaypal = (providerId?: string) => {
 export const isManual = (providerId?: string) => {
   return providerId?.startsWith("pp_system_default")
 }
-
 
 // Add currencies that don't need to be divided by 100
 export const noDivisionCurrencies = [
