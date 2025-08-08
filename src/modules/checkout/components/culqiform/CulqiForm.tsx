@@ -12,23 +12,30 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
   const [culqiReady, setCulqiReady] = useState(false)
 
   useEffect(() => {
+    console.log("🔄 useEffect iniciado - verificando Culqi")
+
     // Ya está cargado el script → continuar
     if ((window as any).Culqi) {
+      console.log("🟢 Culqi ya estaba en window")
       initCulqi()
       return
     }
 
-    // Cargar script manualmente
+    console.log("📦 Cargando script Culqi v4...")
+
     const script = document.createElement('script')
     script.src = 'https://checkout.culqi.com/js/v4'
     script.async = true
+
     script.onload = () => {
-      console.log("✅ Script Culqi cargado manualmente.")
+      console.log("✅ Script Culqi cargado correctamente.")
       initCulqi()
     }
+
     script.onerror = () => {
       console.error("❌ Error al cargar script Culqi.")
     }
+
     document.body.appendChild(script)
 
     return () => {
@@ -38,13 +45,29 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
   }, [])
 
   const initCulqi = () => {
+    console.log("⚙️ Iniciando configuración de Culqi...")
+
     const { Culqi } = window as any
+    const publicKey = process.env.NEXT_PUBLIC_CULQI_PK
+
+    console.log("🔐 Valor de NEXT_PUBLIC_CULQI_PK:", publicKey)
+
     if (!Culqi) {
-      console.error("❌ Culqi no está definido después del script.")
+      console.error("❌ Culqi no está definido después de cargar el script.")
       return
     }
 
-    Culqi.publicKey = process.env.NEXT_PUBLIC_CULQI_PK
+    if (!publicKey || typeof publicKey !== 'string') {
+      console.error("❌ Clave pública de Culqi no definida o inválida.")
+      return
+    }
+
+    try {
+      Culqi.publicKey = publicKey
+    } catch (err) {
+      console.error("🚨 Error al asignar Culqi.publicKey:", err)
+      return
+    }
 
     Culqi.settings({
       title: 'Perfumes Elite',
@@ -64,46 +87,50 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
       },
     })
 
+    console.log("✅ Culqi configurado con settings y options.")
+
     ;(window as any).culqi = () => {
       const { Culqi } = window as any
       if (Culqi.token) {
         console.log("💳 Token recibido:", Culqi.token.id)
         onToken(Culqi.token.id)
       } else {
-        alert(Culqi.error.user_message)
         console.warn("❗ Error de Culqi:", Culqi.error)
+        alert(Culqi.error?.user_message || "Error desconocido en el pago")
       }
     }
 
     setCulqiReady(true)
-    console.log("✅ Culqi configurado y listo.")
+    console.log("🟩 Culqi listo para usar")
   }
 
   const handleOpenCulqi = () => {
+    console.log("🟡 Intentando abrir Culqi...")
+
     if (!culqiReady) {
       alert("Aún se está cargando Culqi. Espera unos segundos.")
+      console.warn("⏳ Culqi aún no está listo.")
       return
     }
 
     if (!sessionStorage.getItem('culqi_reloaded')) {
       sessionStorage.setItem('culqi_reloaded', 'true')
+      console.log("🔁 Recargando por primera vez para asegurar sesión limpia.")
       window.location.reload()
       return
     }
 
-    console.log("🟢 Abriendo Culqi...")
+    console.log("🟢 Abriendo Culqi modal...")
     ;(window as any).Culqi?.open()
   }
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={handleOpenCulqi}
-        className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded"
-      >
-        {culqiReady ? 'Pagar con Culqi' : 'Cargando Culqi...'}
-      </button>
-    </>
+    <button
+      type="button"
+      onClick={handleOpenCulqi}
+      className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded"
+    >
+      {culqiReady ? 'Pagar con Culqi' : 'Cargando Culqi...'}
+    </button>
   )
 }
