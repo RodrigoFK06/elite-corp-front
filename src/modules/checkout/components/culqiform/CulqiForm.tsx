@@ -12,49 +12,39 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
   const [culqiReady, setCulqiReady] = useState(false)
 
   useEffect(() => {
-    const loadScript = () => {
-      const script = document.createElement('script')
-      script.src = 'https://checkout.culqi.com/js/v4'
-      script.async = true
-      script.onload = () => {
-        console.log("✅ Script Culqi cargado manualmente.")
-        initCulqi()
-      }
-      script.onerror = () => {
-        console.error("❌ Error al cargar script Culqi.")
-      }
-      document.body.appendChild(script)
+    // Ya está cargado el script → continuar
+    if ((window as any).Culqi) {
+      initCulqi()
+      return
     }
 
-    if (typeof window !== "undefined") {
-      if ((window as any).Culqi) {
-        initCulqi()
-      } else {
-        loadScript()
-      }
+    // Cargar script manualmente
+    const script = document.createElement('script')
+    script.src = 'https://checkout.culqi.com/js/v4'
+    script.async = true
+    script.onload = () => {
+      console.log("✅ Script Culqi cargado manualmente.")
+      initCulqi()
     }
+    script.onerror = () => {
+      console.error("❌ Error al cargar script Culqi.")
+    }
+    document.body.appendChild(script)
 
-    // ⚠️ No eliminamos window.culqi en cleanup para evitar errores post-tokenización
     return () => {
-      console.log("🧼 Limpieza: script Culqi listo, sin eliminar window.culqi.")
+      delete (window as any).culqi
+      console.log("🧼 Limpieza: función global culqi eliminada.")
     }
   }, [])
 
   const initCulqi = () => {
     const { Culqi } = window as any
-    const publicKey = process.env.NEXT_PUBLIC_CULQI_PK
-
     if (!Culqi) {
-      console.error("❌ Culqi no está definido después de cargar el script.")
+      console.error("❌ Culqi no está definido después del script.")
       return
     }
 
-    if (!publicKey || typeof publicKey !== 'string') {
-      console.error("❌ Clave pública de Culqi no definida. Revisa tu .env o variables en Vercel.")
-      return
-    }
-
-    Culqi.publicKey = publicKey
+    Culqi.publicKey = process.env.NEXT_PUBLIC_CULQI_PK
 
     Culqi.settings({
       title: 'Perfumes Elite',
@@ -74,14 +64,13 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
       },
     })
 
-    // Callback al recibir token
-    window.Culqi = () => {
+    ;(window as any).culqi = () => {
       const { Culqi } = window as any
       if (Culqi.token) {
         console.log("💳 Token recibido:", Culqi.token.id)
         onToken(Culqi.token.id)
       } else {
-        alert(Culqi.error?.user_message || "Error desconocido en Culqi")
+        alert(Culqi.error.user_message)
         console.warn("❗ Error de Culqi:", Culqi.error)
       }
     }
@@ -103,16 +92,18 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
     }
 
     console.log("🟢 Abriendo Culqi...")
-    window.Culqi?.open()
+    ;(window as any).Culqi?.open()
   }
 
   return (
-    <button
-      type="button"
-      onClick={handleOpenCulqi}
-      className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded"
-    >
-      {culqiReady ? 'Pagar con Culqi' : 'Cargando Culqi...'}
-    </button>
+    <>
+      <button
+        type="button"
+        onClick={handleOpenCulqi}
+        className="w-full bg-yellow-500 hover:bg-yellow-600 text-white font-semibold py-2 px-4 rounded"
+      >
+        {culqiReady ? 'Pagar con Culqi' : 'Cargando Culqi...'}
+      </button>
+    </>
   )
 }
