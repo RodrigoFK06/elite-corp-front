@@ -38,9 +38,9 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
 
     document.body.appendChild(script)
 
+    // No eliminamos window.culqi para evitar romper callbacks posteriores
     return () => {
-      delete (window as any).culqi
-      console.log("🧼 Limpieza: función global culqi eliminada.")
+      console.log("🧼 Limpieza: sin eliminar window.culqi.")
     }
   }, [])
 
@@ -48,9 +48,16 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
     console.log("⚙️ Iniciando configuración de Culqi...")
 
     const { Culqi } = window as any
-    const publicKey = process.env.NEXT_PUBLIC_CULQI_PK
 
-    console.log("🔐 Valor de NEXT_PUBLIC_CULQI_PK:", publicKey)
+    // ⬇️ Fallback hardcodeado (opción A). REEMPLAZA tu clave pública aquí:
+    const FALLBACK_PUBLIC_KEY = "pk_test_OSVfraWJSy2YxtNC"
+
+    // Usa la env si existe; si no, usa la hardcodeada:
+    const envKey = process.env.NEXT_PUBLIC_CULQI_PK as string | undefined
+    const publicKey = envKey ?? FALLBACK_PUBLIC_KEY
+
+    console.log("🔐 NEXT_PUBLIC_CULQI_PK:", envKey)
+    console.log("🔐 Usando publicKey para Culqi:", publicKey)
 
     if (!Culqi) {
       console.error("❌ Culqi no está definido después de cargar el script.")
@@ -64,6 +71,7 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
 
     try {
       Culqi.publicKey = publicKey
+      console.log("✅ Culqi.publicKey asignado correctamente.")
     } catch (err) {
       console.error("🚨 Error al asignar Culqi.publicKey:", err)
       return
@@ -72,7 +80,7 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
     Culqi.settings({
       title: 'Perfumes Elite',
       currency: 'PEN',
-      amount,
+      amount, // Asegúrate que sea en céntimos
       email,
       order: '',
       paymentMethods: { tarjeta: true, yape: true },
@@ -91,12 +99,12 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
 
     ;(window as any).culqi = () => {
       const { Culqi } = window as any
-      if (Culqi.token) {
+      if (Culqi?.token) {
         console.log("💳 Token recibido:", Culqi.token.id)
         onToken(Culqi.token.id)
       } else {
-        console.warn("❗ Error de Culqi:", Culqi.error)
-        alert(Culqi.error?.user_message || "Error desconocido en el pago")
+        console.warn("❗ Error de Culqi:", Culqi?.error)
+        alert(Culqi?.error?.user_message || "Error desconocido en el pago")
       }
     }
 
