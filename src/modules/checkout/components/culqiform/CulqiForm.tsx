@@ -45,7 +45,7 @@ export default function CulqiForm({ amount, email, onToken }: Props) {
   }, [])
 
   const initCulqi = () => {
-    console.log("⚙️ Iniciando configuración de Culqi...")
+    console.log("⚙️ INICIANDO configuración de Culqi...")
 
     const { Culqi } = window as any
 
